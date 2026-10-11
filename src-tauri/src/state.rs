@@ -242,18 +242,19 @@ impl AppState {
         }
     }
 
-    /// (managed ids this install replaces, unmanaged paths it would replace).
-    /// Mirrors python `find_collisions` minus the dlc/game-owned nuance, which
-    /// the deploy scan handles via backups.
-    pub fn find_collisions(&self, targets: &[String]) -> (Vec<String>, Vec<String>) {
-        let tl: std::collections::BTreeSet<String> = targets.iter().map(|t| t.to_lowercase()).collect();
-        let mut managed = vec![];
-        for m in self.mods_only() {
-            if m.targets.iter().any(|t| tl.contains(&t.to_lowercase())) {
-                managed.push(m.id.clone());
-            }
-        }
-        (managed, vec![])
+    /// Replacement installs (update / reinstall / replace) keep the first
+    /// replaced row's list slot, section, and enabled state so load order
+    /// and on/off survive. Returns `(at, keep_section, keep_enabled)`.
+    pub fn replacement_carry(&self, replace_ids: &[String]) -> (Option<usize>, String, bool) {
+        let at = replace_ids
+            .iter()
+            .filter_map(|rid| self.mods.iter().position(|r| r.id == *rid && !r.sep))
+            .min();
+        let (keep_section, keep_enabled) = at
+            .and_then(|i| self.mods.get(i))
+            .map(|r| (r.section.clone(), r.enabled))
+            .unwrap_or((String::new(), true));
+        (at, keep_section, keep_enabled)
     }
 
     /// Who overwrites whom, in priority order: path -> [mod ids, winner last].
@@ -708,10 +709,36 @@ mod tests {
         let mut s = AppState::default();
         s.mods = vec![row("a", "A"), row("b", "B"), row("c", "C")];
         assert_eq!(s.priority_ids(), vec!["a", "b", "c"]);
-        let at = s.mods.iter().position(|r| r.id == "b").unwrap();
+        let (at, _, _) = s.replacement_carry(&["b".to_string()]);
+        let at = at.unwrap();
         s.remove_rows(&["b".to_string()]);
         s.mods.insert(at.min(s.mods.len()), row("b2", "B2"));
         assert_eq!(s.priority_ids(), vec!["a", "b2", "c"]);
+    }
+    #[test]
+    fn replacement_carry_keeps_section_and_enabled() {
+        // Disabled mods stay disabled across update/reinstall; section is
+        // kept for the dialog default. Fresh installs default to enabled.
+        let mut s = AppState::default();
+        let mut b = row("b", "B");
+        b.enabled = false;
+        b.section = "sep1".to_string();
+        s.mods = vec![row("a", "A"), b, row("c", "C")];
+        let (at, section, enabled) = s.replacement_carry(&["b".to_string()]);
+        assert_eq!(at, Some(1));
+        assert_eq!(section, "sep1");
+        assert!(!enabled);
+        let (at, _, enabled) = s.replacement_carry(&["a".to_string()]);
+        assert_eq!(at, Some(0));
+        assert!(enabled);
+        let (at, section, enabled) = s.replacement_carry(&[]);
+        assert_eq!(at, None);
+        assert!(section.is_empty());
+        assert!(enabled);
+        // Unknown ids behave like a fresh install.
+        let (at, _, enabled) = s.replacement_carry(&["zzz".to_string()]);
+        assert_eq!(at, None);
+        assert!(enabled);
     }
     #[test]
     fn desynced_priority_heals() {

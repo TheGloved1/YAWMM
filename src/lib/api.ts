@@ -55,7 +55,6 @@ export const api = {
   install_preview: (path: string) => invoke<InstallPreview>("install_preview", { path }),
   remap_roots: (rels: string[], roots: PlanRoot[], modFolder: string) => invoke<string[]>("remap_roots", { rels, roots, modFolder }),
   install_roots: (path: string, name: string, version: string, nexusId: string, section: string, roots: PlanRoot[], replaceIds: string[]) => invoke<string>("install_roots", { path, name, version, nexusId, section, roots, replaceIds }),
-  find_collisions: (targets: string[]) => invoke<[string[], string[]]>("find_collisions", { targets }),
   edit_mod: (id: string, name: string, version: string, nexusId: string, section: string) => invoke("edit_mod", { id, name, version, nexusId, section }),
 
   merge_inputs: (rel: string) => invoke<MergeInputs>("merge_inputs", { rel }),

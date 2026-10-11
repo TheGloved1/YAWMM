@@ -666,17 +666,6 @@ fn edit_mod(shared: State<Shared>, id: String, name: String, version: String, ne
 }
 
 #[tauri::command]
-fn find_collisions(shared: State<Shared>, targets: Vec<String>) -> Result<(Vec<String>, Vec<String>), String> {
-    let out = {
-        let g = lock_shared(&shared, "find_collisions")?;
-        let m = g.as_ref().ok_or("open a game folder first")?;
-        let s = m.state.lock().map_err(|e| e.to_string())?;
-        s.find_collisions(&targets)
-    };
-    Ok(out)
-}
-
-#[tauri::command]
 fn clashes(shared: State<Shared>) -> Result<std::collections::BTreeMap<String, Vec<String>>, String> {
     let out = {
         let g = lock_shared(&shared, "clashes")?;
@@ -2166,9 +2155,11 @@ fn install_preview(path: String) -> Result<InstallPreview, String> {
 
 /// Install with per-root kind/folder mapping from the dialog's table.
 /// When `replace_ids` is non-empty the replaced rows are removed and the new
-/// row takes the first replaced row's list position (and section, unless the
-/// dialog picked one), so updates/reinstalls keep their load-order spot
-/// instead of dropping to the end of the list.
+/// row takes the first replaced row's list position, section (unless the
+/// dialog picked one), and enabled state, so updates/reinstalls keep their
+/// load-order spot and on/off state instead of dropping to the end enabled.
+/// `replace_ids` are resolved from mod metadata (explicit source id or Nexus
+/// ID / name / archive match) — never from deployed-file overlap.
 #[tauri::command]
 fn install_roots(
     shared: State<Shared>,
@@ -2260,20 +2251,15 @@ fn install_roots(
             {
                 let mut s = m.state.lock().map_err(|e| e.to_string())?;
                 // Replacement installs (update / reinstall / replace) keep
-                // the first replaced row's position so load order survives.
-                let at = replace_ids.iter()
-                    .filter_map(|rid| s.mods.iter().position(|r| r.id == *rid && !r.sep))
-                    .min();
-                let keep_section = at
-                    .and_then(|i| s.mods.get(i))
-                    .map(|r| r.section.clone())
-                    .unwrap_or_default();
+                // the first replaced row's position, section, and enabled
+                // state so load order and on/off survive.
+                let (at, keep_section, keep_enabled) = s.replacement_carry(&replace_ids);
                 if !replace_ids.is_empty() {
                     s.remove_rows(&replace_ids);
                 }
                 let row_section = if section.is_empty() { keep_section } else { section.clone() };
                 let row = state::ModRow {
-                    id: id.clone(), sep: false, name: name.clone(), enabled: true,
+                    id: id.clone(), sep: false, name: name.clone(), enabled: keep_enabled,
                     version: version.clone(), nexus: nexus_id.clone(), archive: path.clone(),
                     section: row_section, updated: chrono::Utc::now().timestamp(),
                     collapsed: false, targets: targets.clone(), nexus_cat: String::new(), main_of: String::new(),
@@ -2357,7 +2343,6 @@ pub fn run() {
             install_archive,
             add_separator,
             edit_mod,
-            find_collisions,
             clashes,
             merge_scripts,
             merge_xml,

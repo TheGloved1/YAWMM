@@ -2,6 +2,8 @@
   import { onMount, untrack } from 'svelte';
   import { page } from '$app/state';
   import { api } from '$lib/api';
+  import { findReplaceCandidates } from '$lib/replace';
+  import type { ModRow } from '$lib/types';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { Check, ChevronDown, ChevronRight, X } from 'lucide-svelte';
   import FileTree from '$lib/components/file-tree.svelte';
@@ -26,7 +28,8 @@
   let nexus: string = $state('');
   let section: string = $state('');
   let sections: { id: string; name: string }[] = $state([]);
-  let collisions: string[] = $state([]);
+  let allMods: ModRow[] = $state([]);
+  let explicitReplaceId: string = $state('');
   let replace: boolean = $state(true);
   let roots: Root[] = $state([]);
   let addedOpen: boolean = $state(false);
@@ -38,6 +41,13 @@
   /** The recorded archive is gone (moved/renamed download, legacy import):
    *  offer to locate the file instead of dead-ending on the error. */
   let missing: string = $state('');
+
+  /** Metadata-only replace targets: explicit source id wins, else Nexus ID,
+   *  else exact name / archive-basename match. Re-evaluates as the Name and
+   *  Nexus ID fields are edited. */
+  let replaceTargets: ModRow[] = $derived(
+    findReplaceCandidates(allMods, { nexus, name, archivePath: archPath, explicitId: explicitReplaceId }),
+  );
 
   const kinds = ['Mod', 'DLC', 'Bin', 'Content'];
 
@@ -60,14 +70,14 @@
       name = page.url.searchParams.get('name') || n;
       version = page.url.searchParams.get('version') || v;
       nexus = page.url.searchParams.get('nexus') || nx;
+      explicitReplaceId = page.url.searchParams.get('replace') ?? '';
       const prev = await api.install_preview(archPath);
       roots = prev.roots;
       if (!roots.length) roots = [{ prefix: '', kind: 'Mod', folder: '', files: 0 }];
       rawFiles = prev.moves.map(([, d]) => d);
       addedFiles = await remapFiles();
-      const [managed] = await api.find_collisions(addedFiles);
-      collisions = managed;
       const st = await api.list_mods();
+      allMods = st.mods;
       sections = st.mods.filter((m) => m.sep).map((m) => ({ id: m.id, name: m.name }));
     } catch (e) {
       const msg = String(e);
@@ -98,7 +108,7 @@
       roots = [];
       rawFiles = [];
       addedFiles = [];
-      collisions = [];
+      allMods = [];
       await load();
     } catch (e) {
       warn = String(e);
@@ -157,15 +167,18 @@
       }
     }
     busy = true; warn = '';
-    console.debug(`[yawmm] install: enter name=${name.trim()} replace=${replace} collisions=${collisions.length} path=${archPath}`);
+    console.debug(`[yawmm] install: enter name=${name.trim()} replace=${replace} targets=${replaceTargets.length} path=${archPath}`);
     try {
       // Replacement installs are atomic in the backend: the replaced rows'
-      // list position (load order) is kept for the new row.
+      // list position, section, and enabled state are kept for the new row.
+      // Targets resolve from metadata (explicit source id, Nexus ID, or
+      // exact name / archive match) against a fresh list so edits made in
+      // this dialog are honored.
       let replaceIds: string[] = [];
-      if (replace && collisions.length) {
-        console.debug(`[yawmm] install: replace flow, fetching list_mods for ${collisions.length} collisions`);
+      if (replace && replaceTargets.length) {
         const st = await api.list_mods();
-        replaceIds = st.mods.filter((m) => collisions.includes(m.id)).map((m) => m.id);
+        const fresh = findReplaceCandidates(st.mods, { nexus, name, archivePath: archPath, explicitId: explicitReplaceId });
+        replaceIds = fresh.map((m) => m.id);
         console.debug(`[yawmm] install: replaceIds [${replaceIds.join(',')}]`);
       }
       console.debug(`[yawmm] install: invoking install_roots replaceIds=${replaceIds.length}`);
@@ -195,8 +208,8 @@
 <div class="mx-auto flex h-full max-w-[780px] flex-col gap-3 overflow-y-auto px-[22px] py-5">
   <PageHeader title="Install mod" subtitle={stem} />
 
-  {#if collisions.length}
-    <CollisionNotice count={collisions.length} bind:replace />
+  {#if replaceTargets.length}
+    <CollisionNotice names={replaceTargets.map((m) => m.name)} bind:replace />
   {/if}
 
 

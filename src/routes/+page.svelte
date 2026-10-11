@@ -607,6 +607,7 @@
       name: m.name ?? '',
       version: m.version ?? '',
       nexus: (m.nexus ?? '').replace(/\D/g, ''),
+      replace: id,
     });
     await api.open_tool_window('install', qp.toString(), m.archive).catch((e) => {
       console.error('[yawmm] open_tool_window install failed', e);
@@ -675,6 +676,7 @@
         name: m?.name ?? '',
         version: p.version ?? '',
         nexus: (m?.nexus ?? '').replace(/\D/g, ''),
+        replace: p.id,
       });
       flash(`Update file already downloaded — installing ${m?.name ?? 'mod'} from local copy…`);
       await api.open_tool_window('install', qp.toString(), p.local_path).catch((e) => {
