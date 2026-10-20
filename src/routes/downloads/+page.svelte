@@ -22,6 +22,19 @@
   let error: string = $state('');
   let dlCollapsed: Record<string, boolean> = $state({});
 
+  function fmtDate(ts?: number): string {
+    if (!ts) return '';
+    try {
+      return new Date(ts * 1000).toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      });
+    } catch {
+      return '';
+    }
+  }
+
   // Groups keyed by mod/file id. NOTE: this must stay an array sorted
   // here — a keyed object would iterate integer-like Nexus ids in numeric
   // order and destroy the backend's newest-first ordering.
@@ -155,6 +168,9 @@
                 </div>
               {/if}
               <div class="text-[13px]" style="color:{st.color}">{st.text}</div>
+              {#if qq.added}
+                <div class="mt-1 text-[11px] text-[#6b7380]">Downloaded {fmtDate(qq.added)}</div>
+              {/if}
               <div class="mt-2 flex items-center gap-1.5">
                 <span class="min-w-0 flex-1 truncate text-[12.5px] text-[#8c96a1]" title={meta}>{meta}</span>
                 {#if !isRunning}
